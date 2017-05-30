@@ -37,6 +37,7 @@ import org.eclipse.che.api.machine.shared.Constants;
 import org.eclipse.che.api.user.server.TokenValidator;
 import org.eclipse.che.api.workspace.server.WorkspaceConfigMessageBodyAdapter;
 import org.eclipse.che.api.workspace.server.WorkspaceMessageBodyAdapter;
+import org.eclipse.che.api.workspace.server.stack.StackLoader;
 import org.eclipse.che.api.workspace.server.stack.StackMessageBodyAdapter;
 import org.eclipse.che.core.db.schema.SchemaInitializer;
 import org.eclipse.che.inject.DynaModule;
@@ -96,7 +97,11 @@ public class WsMasterModule extends AbstractModule {
         bind(org.eclipse.che.api.user.server.UserService.class);
         bind(org.eclipse.che.api.user.server.ProfileService.class);
         bind(org.eclipse.che.api.user.server.PreferencesService.class);
+
         bind(org.eclipse.che.api.workspace.server.stack.StackLoader.class);
+        bindConstant().annotatedWith(Names.named(StackLoader.CHE_PREDEFINED_STACKS)).to("/stacks.json");
+        bindConstant().annotatedWith(Names.named(StackLoader.CHE_PREDEFINED_STACKS_IMAGES)).to("/stacks-images");
+
         bind(org.eclipse.che.api.workspace.server.stack.StackService.class);
         bind(org.eclipse.che.api.workspace.server.TemporaryWorkspaceRemover.class);
         bind(org.eclipse.che.api.workspace.server.WorkspaceService.class);

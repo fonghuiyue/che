@@ -14,6 +14,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
+import org.apache.commons.io.IOUtils;
 import org.eclipse.che.api.core.ConflictException;
 import org.eclipse.che.api.core.NotFoundException;
 import org.eclipse.che.api.core.ServerException;
@@ -31,6 +32,8 @@ import javax.inject.Named;
 import javax.inject.Singleton;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -44,26 +47,29 @@ import static org.eclipse.che.core.db.DBInitializer.BARE_DB_INIT_PROPERTY_NAME;
  * and set {@link StackIcon} to the predefined stack.
  *
  * @author Alexander Andrienko
+ * @author Sergii Leshchenko
  */
 @Singleton
 public class StackLoader {
-
     private static final Logger LOG = LoggerFactory.getLogger(StackLoader.class);
+
+    public static final String CHE_PREDEFINED_STACKS = "che.predefined.stacks";
+    public static final String CHE_PREDEFINED_STACKS_IMAGES = "che.predefined.stacks.images";
 
     protected final Path     stackIconFolderPath;
     protected final StackDao stackDao;
 
     private final Gson          GSON;
-    private final Path          stackJsonPath;
+    private final String        stacksPath;
     private final DBInitializer dbInitializer;
 
     @Inject
     @SuppressWarnings("unused")
-    public StackLoader(@Named("che.stacks.storage") String stacksPath,
-                       @Named("che.stacks.images") String stackIconFolder,
+    public StackLoader(@Named(CHE_PREDEFINED_STACKS) String stacksPath,
+                       @Named(CHE_PREDEFINED_STACKS_IMAGES) String stackIconFolder,
                        StackDao stackDao,
                        DBInitializer dbInitializer) {
-        this.stackJsonPath = Paths.get(stacksPath);
+        this.stacksPath = stacksPath;
         this.stackIconFolderPath = Paths.get(stackIconFolder);
         this.stackDao = stackDao;
         this.dbInitializer = dbInitializer;
@@ -75,10 +81,8 @@ public class StackLoader {
      */
     @PostConstruct
     public void start() {
-        if (Boolean.parseBoolean(dbInitializer.getInitProperties().get(BARE_DB_INIT_PROPERTY_NAME))
-            && Files.exists(stackJsonPath)
-            && Files.isRegularFile(stackJsonPath)) {
-            try (BufferedReader reader = Files.newBufferedReader(stackJsonPath)) {
+        if (Boolean.parseBoolean(dbInitializer.getInitProperties().get(BARE_DB_INIT_PROPERTY_NAME))) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(getResource(stacksPath)))) {
                 List<StackImpl> stacks = GSON.fromJson(reader, new TypeToken<List<StackImpl>>() {}.getType());
                 stacks.forEach(this::loadStack);
                 LOG.info("Stacks successfully initialized");
@@ -109,16 +113,29 @@ public class StackLoader {
         }
         try {
             Path stackIconPath = stackIconFolderPath.resolve(stackIcon.getName());
-            if (Files.exists(stackIconPath) && Files.isRegularFile(stackIconPath)) {
-                stackIcon =
-                        new StackIcon(stackIcon.getName(), stackIcon.getMediaType(), Files.readAllBytes(stackIconPath));
-                stack.setStackIcon(stackIcon);
-            } else {
-                throw new IOException("Stack icon is not a file or doesn't exist by path: " + stackIconPath);
-            }
+            InputStream stackIconStream = getResource(stackIconPath.toString());
+            stackIcon = new StackIcon(stackIcon.getName(), stackIcon.getMediaType(), IOUtils.toByteArray(stackIconStream));
+            stack.setStackIcon(stackIcon);
         } catch (IOException e) {
             stack.setStackIcon(null);
             LOG.error(format("Failed to load stack icon data for the stack with id '%s'", stack.getId()), e);
         }
+    }
+
+    /**
+     * Searches for resource by given path.
+     *
+     * @param resource
+     *         path to resource
+     * @return resource InputStream
+     * @throws IOException
+     *         when specified resource was not found
+     */
+    private InputStream getResource(String resource) throws IOException {
+        InputStream is = Thread.currentThread().getContextClassLoader().getResourceAsStream(resource);
+        if (is == null) {
+            throw new IOException(String.format("Not found resource: %s", resource));
+        }
+        return is;
     }
 }

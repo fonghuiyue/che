@@ -160,6 +160,10 @@
         </dependency>
         <dependency>
             <groupId>org.eclipse.che.core</groupId>
+            <artifactId>che-core-ide-stacks</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.che.core</groupId>
             <artifactId>che-core-sql-schema</artifactId>
         </dependency>
         <dependency>
@@ -293,6 +297,31 @@
         </resources>
         <plugins>
             <plugin>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>add-stack</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <unzip dest="${project.build.directory}/stacks/" src="${org.eclipse.che.core:che-core-ide-stacks:jar}" />
+                                <loadfile property="stack.che-in-che" srcFile="${project.basedir}/src/main/resources/che-in-che.json" />
+                                <replaceregexp file="${project.build.directory}/stacks/stacks.json" flags="m">
+                                    <regexp pattern="^]$" />
+                                    <substitution expression=", ${stack.che-in-che} ]" />
+                                </replaceregexp>
+                                <copy todir="${project.build.directory}/${project.artifactId}-${project.version}/WEB-INF/classes">
+                                    <fileset dir="${project.build.directory}/stacks" excludes="META-INF/" />
+                                </copy>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
@@ -300,18 +329,6 @@
                         <id>analyze</id>
                         <configuration>
                             <skip>true</skip>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>resource-dependencies</id>
-                        <phase>process-test-resources</phase>
-                        <goals>
-                            <goal>unpack-dependencies</goal>
-                        </goals>
-                        <configuration>
-                            <includeArtifactIds>che-core-sql-schema</includeArtifactIds>
-                            <includes>che-schema/</includes>
-                            <outputDirectory>${project.build.directory}</outputDirectory>
                         </configuration>
                     </execution>
                 </executions>
