@@ -10,11 +10,11 @@
  *******************************************************************************/
 package org.eclipse.che.api.workspace.server.stack;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Resources;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
-import org.eclipse.che.api.core.ConflictException;
 import org.eclipse.che.api.core.NotFoundException;
 import org.eclipse.che.api.core.ServerException;
 import org.eclipse.che.api.core.rest.shared.dto.Link;
@@ -31,8 +31,10 @@ import org.eclipse.che.api.workspace.shared.dto.SourceStorageDto;
 import org.eclipse.che.api.workspace.shared.dto.WorkspaceConfigDto;
 import org.eclipse.che.api.workspace.shared.dto.stack.StackComponentDto;
 import org.eclipse.che.api.workspace.shared.dto.stack.StackDto;
+import org.eclipse.che.core.db.DBInitializer;
 import org.mockito.Mock;
 import org.mockito.testng.MockitoTestNGListener;
+import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Listeners;
 import org.testng.annotations.Test;
 
@@ -44,12 +46,14 @@ import java.util.List;
 import java.util.Map;
 
 import static java.util.Collections.singletonMap;
+import static org.eclipse.che.core.db.DBInitializer.BARE_DB_INIT_PROPERTY_NAME;
 import static org.eclipse.che.dto.server.DtoFactory.newDto;
 import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Tests for {@link StackLoader}
@@ -62,50 +66,50 @@ public class StackLoaderTest {
     @Mock
     private StackDao stackDao;
 
+    @Mock
+    private DBInitializer dbInitializer;
+
     private StackLoader stackLoader;
 
-    @Test
-    public void predefinedStackWithValidJsonShouldBeUpdated() throws ServerException, NotFoundException, ConflictException {
+    @BeforeMethod
+    public void startup() throws Exception {
+        when(dbInitializer.getInitProperties()).thenReturn(ImmutableMap.of(BARE_DB_INIT_PROPERTY_NAME, "true"));
         URL url = Resources.getResource("stacks.json");
         URL urlFolder = Thread.currentThread().getContextClassLoader().getResource("stack_img");
 
-        stackLoader = new StackLoader(url.getPath(), urlFolder.getPath(), stackDao, null);
+        stackLoader = new StackLoader(url.getPath(), urlFolder.getPath(), stackDao, dbInitializer);
+    }
 
+    @Test
+    public void predefinedStackWithValidJsonShouldBeUpdated() throws Exception {
         stackLoader.start();
+
         verify(stackDao, times(5)).update(any());
         verify(stackDao, never()).create(any());
     }
 
     @Test
-    public void predefinedStackWithValidJsonShouldBeCreated() throws ServerException, NotFoundException, ConflictException {
-        URL url = Resources.getResource("stacks.json");
-        URL urlFolder = Thread.currentThread().getContextClassLoader().getResource("stack_img");
-
+    public void predefinedStackWithValidJsonShouldBeCreated() throws Exception {
         doThrow(new NotFoundException("Stack is already exist")).when(stackDao).update(any());
 
-        stackLoader = new StackLoader(url.getPath(), urlFolder.getPath(), stackDao, null);
-
         stackLoader.start();
+
         verify(stackDao, times(5)).update(any());
         verify(stackDao, times(5)).create(any());
     }
 
     @Test
-    public void predefinedStackWithValidJsonShouldBeCreated2() throws ServerException, NotFoundException, ConflictException {
-        URL url = Resources.getResource("stacks.json");
-        URL urlFolder = Thread.currentThread().getContextClassLoader().getResource("stack_img");
-
+    public void predefinedStackWithValidJsonShouldBeCreated2() throws Exception {
         doThrow(new ServerException("Internal server error")).when(stackDao).update(any());
 
-        stackLoader = new StackLoader(url.getPath(), urlFolder.getPath(), stackDao, null);
-
         stackLoader.start();
+
         verify(stackDao, times(5)).update(any());
         verify(stackDao, times(5)).create(any());
     }
 
     @Test
-    public void dtoShouldBeSerialized() {
+    public void dtoShouldBeSerialized() throws Exception {
         StackDto stackDtoDescriptor = newDto(StackDto.class).withName("nameWorkspaceConfig");
         StackComponentDto stackComponentDto = newDto(StackComponentDto.class)
                 .withName("java")
@@ -140,8 +144,10 @@ public class StackLoaderTest {
                                                                           .withType("maven type")
                                                                           .withDescription("some project description")
                                                                           .withLinks(Collections.singletonList(link))
-                                                                          .withMixins(Collections.singletonList("mixin time"))
-                                                                          .withProblems(Collections.singletonList(projectProblem))
+                                                                          .withMixins(Collections.singletonList(
+                                                                                  "mixin time"))
+                                                                          .withProblems(Collections.singletonList(
+                                                                                  projectProblem))
                                                                           .withSource(sourceStorageDto);
 
 
@@ -156,7 +162,9 @@ public class StackLoaderTest {
         Map<String, ExtendedMachineDto> machines = new HashMap<>();
         machines.put("someMachineName", newDto(ExtendedMachineDto.class).withAgents(Arrays.asList("agent1", "agent2"))
                                                                         .withServers(servers)
-                                                                        .withAttributes(singletonMap("memoryLimitBytes", "" + 512L * 1024L * 1024L)));
+                                                                        .withAttributes(singletonMap("memoryLimitBytes",
+                                                                                                     "" + 512L * 1024L *
+                                                                                                          1024L)));
 
         EnvironmentDto environmentDto = newDto(EnvironmentDto.class).withRecipe(environmentRecipe)
                                                                     .withMachines(machines);
@@ -167,11 +175,15 @@ public class StackLoaderTest {
 
         WorkspaceConfigDto workspaceConfigDto = newDto(WorkspaceConfigDto.class).withName("SomeWorkspaceConfig")
                                                                                 .withDescription("some workspace")
-                                                                                .withLinks(Collections.singletonList(link))
+                                                                                .withLinks(
+                                                                                        Collections.singletonList(link))
                                                                                 .withDefaultEnv("some Default Env name")
-                                                                                .withProjects(Collections.singletonList(projectConfigDto))
-                                                                                .withEnvironments(singletonMap("name", environmentDto))
-                                                                                .withCommands(Collections.singletonList(commandDto));
+                                                                                .withProjects(Collections.singletonList(
+                                                                                        projectConfigDto))
+                                                                                .withEnvironments(singletonMap("name",
+                                                                                                               environmentDto))
+                                                                                .withCommands(Collections.singletonList(
+                                                                                        commandDto));
 
         stackDtoDescriptor.setWorkspaceConfig(workspaceConfigDto);
         Gson GSON = new GsonBuilder().create();

@@ -13,8 +13,7 @@ package org.eclipse.che.api.machine.server.recipe;
 import com.google.common.reflect.TypeToken;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonIOException;
-import com.google.gson.JsonSyntaxException;
+import com.google.gson.JsonParseException;
 import com.google.inject.Inject;
 
 import org.eclipse.che.api.core.ConflictException;
@@ -22,21 +21,28 @@ import org.eclipse.che.api.core.NotFoundException;
 import org.eclipse.che.api.core.ServerException;
 import org.eclipse.che.api.machine.server.spi.RecipeDao;
 import org.eclipse.che.commons.annotation.Nullable;
+import org.eclipse.che.core.db.DBInitializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.PostConstruct;
 import javax.inject.Named;
 import javax.inject.Singleton;
-import java.io.File;
-import java.io.FileInputStream;
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.util.Collections;
+import java.io.Reader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
 import static com.google.common.base.MoreObjects.firstNonNull;
-import static java.util.Collections.emptyList;
+import static java.util.Collections.emptySet;
+import static org.eclipse.che.core.db.DBInitializer.BARE_DB_INIT_PROPERTY_NAME;
 
 /**
  * Loads predefined recipes.
@@ -48,35 +54,47 @@ import static java.util.Collections.emptyList;
  */
 @Singleton
 public class RecipeLoader {
-    private static final Gson GSON = new GsonBuilder().create();
 
-    private final Set<String> recipesPaths;
-    private final RecipeDao   recipeDao;
+    private static final Logger LOG  = LoggerFactory.getLogger(RecipeLoader.class);
+    private static final Gson   GSON = new GsonBuilder().create();
+
+
+    protected final RecipeDao recipeDao;
+
+    private final Set<String>   recipesPaths;
+    private final DBInitializer dbInitializer;
+
 
     @Inject
     @SuppressWarnings("unused")
     public RecipeLoader(@Nullable @Named("predefined.recipe.path") Set<String> recipesPaths,
-                        RecipeDao recipeDao) {
-        this.recipesPaths = firstNonNull(recipesPaths, Collections.<String>emptySet());
+                        RecipeDao recipeDao,
+                        DBInitializer dbInitializer) {
+        this.recipesPaths = firstNonNull(recipesPaths, emptySet());
         this.recipeDao = recipeDao;
+        this.dbInitializer = dbInitializer;
     }
 
     @PostConstruct
-    public void start() throws ServerException {
-        for (String recipesPath : recipesPaths) {
-            if (recipesPath != null && !recipesPath.isEmpty()) {
-                for (RecipeImpl recipe : loadRecipes(recipesPath)) {
-                    try {
-                        try {
-                            recipeDao.update(recipe);
-                        } catch (NotFoundException e) {
-                            recipeDao.create(recipe);
-                        }
-                    } catch (ConflictException e) {
-                        throw new ServerException("Failed to store recipe " + recipe, e);
-                    }
+    public void start() {
+        if (Boolean.parseBoolean(dbInitializer.getInitProperties().get(BARE_DB_INIT_PROPERTY_NAME))) {
+            for (String recipesPath : recipesPaths) {
+                if (recipesPath != null && !recipesPath.isEmpty()) {
+                    loadRecipes(recipesPath).forEach(this::doCreate);
                 }
             }
+        }
+    }
+
+    protected void doCreate(RecipeImpl recipe) {
+        try {
+            try {
+                recipeDao.update(recipe);
+            } catch (NotFoundException ex) {
+                recipeDao.create(recipe);
+            }
+        } catch (ServerException | ConflictException ex) {
+            LOG.error("Failed to store recipe {} ", recipe.getId(), ex.getMessage());
         }
     }
 
@@ -85,16 +103,17 @@ public class RecipeLoader {
      *
      * @param recipesPath
      *         path to recipe file
-     * @return list of predefined recipes
-     * @throws ServerException
-     *         when problems occurs with getting or parsing recipe file
+     * @return list of predefined recipes or empty list
+     * when failed to obtain recipes by given path
      */
-    private List<RecipeImpl> loadRecipes(String recipesPath) throws ServerException {
-        try (InputStream is = getResource(recipesPath)) {
-            return firstNonNull(GSON.fromJson(new InputStreamReader(is), new TypeToken<List<RecipeImpl>>() {}.getType()), emptyList());
-        } catch (IOException | JsonIOException | JsonSyntaxException e) {
-            throw new ServerException("Failed to get recipes from specified path " + recipesPath, e);
+    private List<RecipeImpl> loadRecipes(String recipesPath) {
+        final List<RecipeImpl> recipes = new ArrayList<>();
+        try (Reader reader = getResourceReader(recipesPath)) {
+            recipes.addAll(GSON.fromJson(reader, new TypeToken<List<RecipeImpl>>() {}.getType()));
+        } catch (IOException | JsonParseException ex) {
+            LOG.error("Failed to deserialize recipes from specified path " + recipesPath, ex);
         }
+        return recipes;
     }
 
     /**
@@ -106,16 +125,19 @@ public class RecipeLoader {
      * @throws IOException
      *         when problem occurs during resource getting
      */
-    private InputStream getResource(String resource) throws IOException {
-        File resourceFile = new File(resource);
-        if (resourceFile.exists() && !resourceFile.isFile()) {
-            throw new IOException(String.format("%s is not a file. ", resourceFile.getAbsolutePath()));
+    private Reader getResourceReader(String resource) throws IOException {
+        final Path path = Paths.get(resource);
+        if (Files.isRegularFile(path)) {
+            return Files.newBufferedReader(path);
+        } else {
+            final InputStream is = Thread.currentThread()
+                                         .getContextClassLoader()
+                                         .getResourceAsStream(resource);
+            if (is == null) {
+                throw new IOException(String.format("Not found resource: %s", resource));
+            }
+            return new BufferedReader(new InputStreamReader(is));
         }
-        InputStream is = resourceFile.exists() ? new FileInputStream(resourceFile)
-                                               : Thread.currentThread().getContextClassLoader().getResourceAsStream(resource);
-        if (is == null) {
-            throw new IOException(String.format("Not found resource: %s", resource));
-        }
-        return is;
     }
+
 }

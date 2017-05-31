@@ -10,6 +10,8 @@
  *******************************************************************************/
 package org.eclipse.che.core.db;
 
+import com.google.common.collect.ImmutableMap;
+
 import org.eclipse.che.core.db.jpa.JpaInitializer;
 import org.eclipse.che.core.db.jpa.eclipselink.GuiceEntityListenerInjectionManager;
 import org.eclipse.che.core.db.schema.SchemaInitializationException;
@@ -19,6 +21,7 @@ import org.eclipse.persistence.sessions.server.ServerSession;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.persistence.EntityManagerFactory;
+import java.util.Map;
 
 /**
  * Initializes database components.
@@ -46,10 +49,14 @@ import javax.persistence.EntityManagerFactory;
 @Singleton
 public class DBInitializer {
 
+    public static final String BARE_DB_INIT_PROPERTY_NAME = "bare_database_init";
+
+    private final Map<String, String> initProperties;
+
     @Inject
     public DBInitializer(SchemaInitializer schemaInitializer, JpaInitializer jpaInitializer) throws SchemaInitializationException {
         // schema must be initialized before any other component that may interact with database
-        schemaInitializer.init();
+        initProperties = ImmutableMap.copyOf(schemaInitializer.init());
 
         // jpa initialization goes next
         jpaInitializer.init();
@@ -59,5 +66,13 @@ public class DBInitializer {
     public void setUpInjectionManager(GuiceEntityListenerInjectionManager injManager, EntityManagerFactory emFactory) {
         final ServerSession session = emFactory.unwrap(ServerSession.class);
         session.setEntityListenerInjectionManager(injManager);
+    }
+
+    /**
+     * Returns map of initialization properties which may contains
+     * information about database state until initialization.
+     */
+    public Map<String, String> getInitProperties() {
+        return initProperties;
     }
 }
