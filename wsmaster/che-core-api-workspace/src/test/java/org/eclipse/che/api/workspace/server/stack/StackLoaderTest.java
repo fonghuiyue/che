@@ -11,7 +11,6 @@
 package org.eclipse.che.api.workspace.server.stack;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.io.Resources;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
@@ -38,7 +37,6 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Listeners;
 import org.testng.annotations.Test;
 
-import java.net.URL;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -74,10 +72,7 @@ public class StackLoaderTest {
     @BeforeMethod
     public void startup() throws Exception {
         when(dbInitializer.getInitProperties()).thenReturn(ImmutableMap.of(BARE_DB_INIT_PROPERTY_NAME, "true"));
-        URL url = Resources.getResource("stacks.json");
-        URL urlFolder = Thread.currentThread().getContextClassLoader().getResource("stack_img");
-
-        stackLoader = new StackLoader(url.getPath(), urlFolder.getPath(), stackDao, dbInitializer);
+        stackLoader = new StackLoader("stacks.json", "stack_img", stackDao, dbInitializer);
     }
 
     @Test
